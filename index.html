@@ -1,0 +1,554 @@
+<title>H200 Usage Explorer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: fixed control rail at top, then day summary tiles, two whole-day canvas charts,
+   then an expandable per-hour x per-user telemetry table. Technical-telemetry identity. */
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --panel-2:#eef1f5; --fg:#161a20; --muted:#5a6473;
+  --line:#d8dde5; --grid:#e4e8ee; --accent:#1f8a70; --accent-soft:#1f8a7022;
+  --mem:#c67714; --free:#c3cbd6; --free-soft:#c3cbd655; --unattr:#9aa6b4;
+  --warn:#c2410c; --good:#1f8a70; --crit:#b4232a;
+  /* categorical, chosen to read on both themes */
+  --u-preethi:#e8603c; --u-kiruthiga:#3b7fc4; --u-aiswarya:#2fa37a;
+  --u-devasree:#a673d6; --u-soundarahari:#caa13a; --u-narmadha:#d45d9c; --u-nanthitha:#49aec0;
+  --shadow:0 1px 2px rgba(20,26,32,.06),0 2px 10px rgba(20,26,32,.05);
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1116; --panel:#161b22; --panel-2:#1c232d; --fg:#e7ecf2; --muted:#93a0b1;
+  --line:#2a333f; --grid:#232c37; --accent:#36c79e; --accent-soft:#36c79e26;
+  --mem:#e0962f; --free:#3a4553; --free-soft:#3a455366; --unattr:#56606f;
+  --warn:#f59e4b; --good:#36c79e; --crit:#ef5a62;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 2px 12px rgba(0,0,0,.35);
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0e1116; --panel:#161b22; --panel-2:#1c232d; --fg:#e7ecf2; --muted:#93a0b1;
+  --line:#2a333f; --grid:#232c37; --accent:#36c79e; --accent-soft:#36c79e26;
+  --mem:#e0962f; --free:#3a4553; --free-soft:#3a455366; --unattr:#56606f;
+  --warn:#f59e4b; --good:#36c79e; --crit:#ef5a62;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 2px 12px rgba(0,0,0,.35);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);line-height:1.45;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));padding-block:0}
+a{color:var(--accent)}
+h1,h2,h3{text-wrap:balance;margin:0}
+.tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.mono{font-family:var(--mono)}
+
+/* header */
+header.top{padding-block:22px 10px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
+h1{font-size:clamp(24px,4.4vw,34px);font-weight:600;letter-spacing:-.01em;margin-top:4px}
+.sub{color:var(--muted);font-size:14px;margin-top:8px;max-width:72ch}
+.meta-row{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:12px;font-size:12.5px;color:var(--muted);font-family:var(--mono)}
+.meta-row b{color:var(--fg);font-weight:600}
+
+/* sticky controls */
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);margin-top:14px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
+.controls .wrap{padding-block:12px}
+.ctl-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+.daytabs{display:flex;flex-wrap:wrap;gap:8px}
+.daytab{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-family:var(--sans);font-size:13.5px;padding:8px 14px;border-radius:10px;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:1px;transition:border-color .15s,background .15s}
+.daytab:hover{border-color:var(--accent)}
+.daytab[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.daytab .d{font-weight:600}
+.daytab .s{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.daytab[aria-pressed="true"] .s{color:var(--accent)}
+
+.users{display:flex;flex-wrap:wrap;gap:7px;margin-top:4px}
+.uchip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--panel);padding:5px 10px 5px 8px;border-radius:999px;cursor:pointer;font-size:12.5px;user-select:none;transition:opacity .15s,border-color .15s}
+.uchip .dot{width:11px;height:11px;border-radius:3px;flex:none}
+.uchip[aria-pressed="false"]{opacity:.42}
+.uchip .nm{font-family:var(--mono);font-size:12px}
+.uchip.me{font-weight:600}
+.uchip.me .nm::after{content:" ·you";color:var(--accent);font-weight:600}
+.uctls{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;margin-top:4px}
+.linkbtn{background:none;border:none;color:var(--accent);font-family:var(--mono);font-size:11.5px;cursor:pointer;padding:0;letter-spacing:.04em}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:20px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.tile .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.tile .v{font-size:26px;font-weight:600;margin-top:6px;letter-spacing:-.01em}
+.tile .u{font-size:13px;color:var(--muted);font-weight:400;margin-left:2px}
+.tile .x{font-size:12px;color:var(--muted);margin-top:3px;font-family:var(--mono)}
+.tile .stripe{position:absolute;left:0;top:0;bottom:0;width:4px}
+.tile.me .stripe{background:var(--u-preethi)}
+.tile.util .stripe{background:var(--accent)}
+.tile.mem .stripe{background:var(--mem)}
+.tile.free .stripe{background:var(--free)}
+
+/* chart cards */
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+@media (max-width:820px){.cards{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 16px 10px;box-shadow:var(--shadow);min-width:0}
+.card h3{font-size:14.5px;font-weight:600}
+.card .hint{font-size:12px;color:var(--muted);margin-top:2px;margin-bottom:6px}
+.chart-wrap{position:relative;width:100%}
+canvas{display:block;width:100%;height:auto;touch-action:none}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.tipbox{position:absolute;pointer-events:none;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow);padding:8px 10px;font-size:11.5px;font-family:var(--mono);min-width:150px;opacity:0;transition:opacity .08s}
+.tipbox .tt{font-weight:600;margin-bottom:5px;font-size:12px}
+.tipbox .r{display:flex;justify-content:space-between;gap:12px;white-space:nowrap}
+.tipbox .r i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle}
+.tipbox .r .vv{font-variant-numeric:tabular-nums}
+
+/* hourly table */
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:26px 0 10px;flex-wrap:wrap}
+.sec-head h2{font-size:17px;font-weight:600}
+.sec-head p{font-size:12.5px;color:var(--muted);margin:0}
+.tablecard{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.tscroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:720px}
+thead th{position:sticky;top:0;background:var(--panel-2);text-align:right;padding:10px 12px;font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600;border-bottom:1px solid var(--line);white-space:nowrap}
+thead th.l{text-align:left}
+tbody.hourbody>tr.hr{border-bottom:1px solid var(--grid);cursor:pointer}
+tbody.hourbody>tr.hr:hover{background:var(--panel-2)}
+tbody.hourbody>tr.hr>td{padding:9px 12px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.l{text-align:left!important}
+.hrtime{font-family:var(--mono);font-weight:600;display:inline-flex;align-items:center;gap:8px}
+.caret{transition:transform .15s;color:var(--muted);display:inline-block}
+tr.hr[aria-expanded="true"] .caret{transform:rotate(90deg)}
+.bar{--p:0;position:relative;height:16px;min-width:64px;border-radius:4px;background:var(--panel-2);overflow:hidden;display:inline-block;width:100%;max-width:110px;vertical-align:middle}
+.bar>i{position:absolute;left:0;top:0;bottom:0;width:calc(var(--p)*1%);border-radius:4px}
+.bar.util>i{background:var(--accent)}
+.bar.mem>i{background:var(--mem)}
+.barwrap{display:inline-flex;align-items:center;gap:8px;justify-content:flex-end}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-family:var(--mono);font-size:11px;font-weight:600}
+.pill.lo{background:var(--free-soft);color:var(--muted)}
+.pill.mid{background:#c677141f;color:var(--warn)}
+.pill.hi{background:#b4232a22;color:var(--crit)}
+tr.detailrow>td{padding:0;background:var(--panel-2)}
+.detail{padding:4px 12px 12px}
+table.inner{min-width:0;width:100%;font-size:12.5px}
+table.inner th{position:static;background:none;border-bottom:1px solid var(--line);padding:7px 10px;text-align:right}
+table.inner th.l{text-align:left}
+table.inner td{padding:6px 10px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;border-bottom:1px solid var(--grid)}
+table.inner tr:last-child td{border-bottom:none}
+table.inner tr.ume td{background:color-mix(in srgb,var(--u-preethi) 10%,transparent)}
+.udot{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:7px;vertical-align:baseline}
+.uname{font-family:var(--mono);font-size:12px}
+.empty{padding:18px;color:var(--muted);text-align:center;font-family:var(--mono);font-size:13px}
+#events{margin-top:16px}
+#events h3{font-size:14.5px;font-weight:600}
+#events .cap{font-size:12px;color:var(--muted);margin:2px 0 10px}
+.evlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.evlist li{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;min-width:0}
+.evdot{width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 18%,transparent)}
+.evt{font-family:var(--mono);color:var(--muted);min-width:46px;font-variant-numeric:tabular-nums}
+.evlab{flex:1;min-width:120px}
+.evlab b{font-weight:600}
+.evtag{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.evtag.crash{background:#b4232a22;color:var(--crit)}
+.evtag.admin{background:#c677141f;color:var(--warn)}
+.evtag.self{background:var(--panel-2);color:var(--muted)}
+footer{margin:30px 0 40px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+footer code{font-family:var(--mono);background:var(--panel-2);padding:1px 5px;border-radius:4px;font-size:11.5px}
+.loading{padding:60px 0;text-align:center;color:var(--muted);font-family:var(--mono)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<header class="top"><div class="wrap">
+  <div class="eyebrow">H200 · GPU audit</div>
+  <h1>H200 Usage Explorer</h1>
+  <p class="sub">Per-user occupancy and compute on the shared H200, broken out by hour for each day you (preethi.s) held the GPU. Pick a day to see memory held, utilization and free capacity across the whole day, then open any hour for the per-user breakdown.</p>
+  <div class="meta-row" id="metarow"></div>
+</div></header>
+
+<div class="controls"><div class="wrap">
+  <div class="ctl-label">Day — only days preethi.s used the GPU</div>
+  <div class="daytabs" id="daytabs"></div>
+  <div class="ctl-label" style="margin-top:14px">Users — toggle series in the charts</div>
+  <div class="users" id="users"></div>
+  <div class="uctls">
+    <button class="linkbtn" id="selall">all</button>
+    <button class="linkbtn" id="selnone">none</button>
+    <button class="linkbtn" id="selme">only me</button>
+  </div>
+</div></div>
+
+<main class="wrap" id="main">
+  <div class="loading" id="loading">loading telemetry…</div>
+  <div id="content" hidden>
+    <div class="tiles" id="tiles"></div>
+
+    <div class="cards">
+      <div class="card">
+        <h3>GPU utilization — whole day</h3>
+        <p class="hint">SM activity sampled ~every 10&nbsp;s, averaged per minute. Shaded = whole-GPU util; lines = selected users.</p>
+        <div class="chart-wrap"><canvas id="utilchart"></canvas><div class="tipbox" id="utiltip"></div></div>
+        <div class="legend" id="utillegend"></div>
+      </div>
+      <div class="card">
+        <h3>Memory — whole day</h3>
+        <p class="hint">Stacked GiB held per selected user, then unattributed overhead, then free capacity up to 140.4&nbsp;GiB.</p>
+        <div class="chart-wrap"><canvas id="memchart"></canvas><div class="tipbox" id="memtip"></div></div>
+        <div class="legend" id="memlegend"></div>
+      </div>
+    </div>
+
+    <div class="card" id="events" hidden></div>
+
+    <div class="sec-head">
+      <h2>Hourly breakdown</h2>
+      <p id="hourhint"></p>
+    </div>
+    <div class="tablecard"><div class="tscroll">
+      <table>
+        <thead><tr>
+          <th class="l">Hour (IST)</th>
+          <th>GPU util<br>mean / peak</th>
+          <th>Mem used<br>mean / peak</th>
+          <th>Free<br>mean / min</th>
+          <th>Active<br>users</th>
+          <th>Your mem<br>peak</th>
+          <th>Your util<br>mean</th>
+        </tr></thead>
+        <tbody class="hourbody" id="hourbody"></tbody>
+      </table>
+    </div></div>
+
+    <footer>
+      Two monitors feed this page over <span id="winf" class="mono"></span> (IST, UTC+5:30), <span id="sampf" class="mono"></span> snapshots in all. <b>Oct&nbsp;10–11</b>: the ~10&nbsp;s H200 sampler (<code>gpumonitor/…_monitor.log</code>). <b>Oct&nbsp;15–17</b>: your ~5&nbsp;min gpu-watch daemon (<code>Experiments/gpu_watch_oct15-16/usage_log.jsonl</code>). Each day's badge and the hourly header show that day's cadence and source; the coarser days have fewer points per hour.
+      Memory in GiB (1&nbsp;GiB&nbsp;=&nbsp;1024&nbsp;MiB); GPU total 143&nbsp;771&nbsp;MiB (140.4&nbsp;GiB). “Unattributed” is whole-GPU memory not charged to a named process (CUDA context / driver overhead). Util is per-process SM occupancy and can exceed the single whole-GPU figure when jobs overlap.
+    </footer>
+  </div>
+</main>
+
+<script>
+const ME = "preethi.s";
+const ME_COLOR = "#e8603c";
+const PALETTE = ["#4e79a7","#59a14f","#f28e2b","#b07aa1","#76b7b2","#edc948","#9c755f","#d37295","#86bcb6","#8cd17d","#b6992d","#a0cbe8","#499894"];
+let UCOLORS = {};
+function buildColors(users){ UCOLORS={}; let i=0; users.forEach(u=>{ UCOLORS[u] = (u===ME) ? ME_COLOR : PALETTE[(i++)%PALETTE.length]; }); }
+const MIB = 1024;
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const ucol = u => UCOLORS[u] || "#8a8a8a";
+
+// Kill / cancel events, keyed by IST date. type: crash | admin | self
+const EVENTS = {
+  "2026-10-15":[
+    {t:"22:18",type:"self",job:"1700",label:"You cancelled 1700 — 59 s false start, resubmitted as 1701"},
+  ],
+  "2026-10-16":[
+    {t:"05:42",type:"crash",job:"1701",label:"1701 FAILED (rc=134) — DataLoader shared-memory unlink crash, died at epoch 33"},
+    {t:"07:20",type:"crash",job:"1706",label:"1706 FAILED (rc=134) — same shm-unlink crash on the resume, died at epoch 40"},
+    {t:"08:44",type:"self",job:"1707",label:"You cancelled 1707 — replaced by the 1708/1709 batch (both later COMPLETED)"},
+  ],
+  "2026-10-17":[
+    {t:"09:50",type:"admin",job:"1721",label:"1721 CANCELLED by root (uid 0) — seed5 preempted after 13 h 28 m, no result.json"},
+    {t:"10:47",type:"admin",job:"1731",label:"1731 CANCELLED by root — seed5 retry killed after 12 m"},
+    {t:"11:48",type:"admin",job:"1736",label:"1736 CANCELLED by root — seed5 retry killed after 40 m"},
+  ],
+};
+const EVCOL = {crash:"--crit", admin:"--warn", self:"--muted"};
+const EVTAG = {crash:"crash", admin:"root kill", self:"self-cancel"};
+const eventsFor = () => EVENTS[DAY.date] || [];
+const toMin = s => { const p=s.split(":"); return (+p[0])*60 + (+p[1]); };
+function evX(series, xs, t){ const tm=toMin(t); let best=0,bd=1e9;
+  for(let i=0;i<series.length;i++){ const d=Math.abs(toMin(series[i].t)-tm); if(d<bd){bd=d;best=i;} } return xs(best); }
+function drawEvents(ctx,w,h,series,xs){
+  eventsFor().forEach(e=>{
+    const x=evX(series,xs,e.t), col=cssv(EVCOL[e.type]);
+    ctx.save();
+    ctx.strokeStyle=col; ctx.globalAlpha=.85; ctx.lineWidth=1.3; ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(x+.5,PADT); ctx.lineTo(x+.5,h-PADB); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha=1;
+    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(x+.5,PADT+2,3.4,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+}
+const gib = m => m/MIB;
+const fmt1 = n => n.toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1});
+const fmt0 = n => Math.round(n).toLocaleString();
+const shortu = u => u.replace(/\.(\d+[a-z]+)$/,"");
+const cadStr = s => s>=90 ? Math.round(s/60)+"m" : s+"s";
+
+let DATA=null, DAY=null, ENABLED=new Set();
+
+function init(data){
+  DATA=data;
+  const m=data.meta;
+  buildColors(m.users);
+  document.getElementById("metarow").innerHTML =
+    `<span><b>${m.host}</b> · 1× GPU</span>`+
+    `<span><b>${m.mem_total_gib}</b> GiB total</span>`+
+    `<span><b>${m.sample_count.toLocaleString()}</b> snapshots</span>`+
+    `<span><b>${m.users.length}</b> users seen</span>`+
+    `<span>window <b>${m.window_ist[0]} → ${m.window_ist[1]}</b> IST</span>`;
+  document.getElementById("winf").textContent = `${m.window_ist[0]} → ${m.window_ist[1]}`;
+  document.getElementById("sampf").textContent = m.sample_count.toLocaleString();
+
+  // day tabs
+  const dt=document.getElementById("daytabs");
+  const days=data.days.filter(d=>d.preethi_present);
+  days.forEach((d,i)=>{
+    const b=document.createElement("button");
+    b.className="daytab"; b.type="button"; b.dataset.date=d.date;
+    b.setAttribute("aria-pressed", i===days.length-1 ? "true":"false");
+    b.innerHTML=`<span class="d">${d.weekday} ${d.date.slice(5)}</span><span class="s">${d.span[0]}–${d.span[1]} · ${d.n.toLocaleString()} @ ${cadStr(d.cadence_s)}</span>`;
+    b.addEventListener("click",()=>selectDay(d.date));
+    dt.appendChild(b);
+  });
+
+  // user chips
+  const uc=document.getElementById("users");
+  m.users.forEach(u=>{
+    ENABLED.add(u);
+    const b=document.createElement("button");
+    b.className="uchip"+(u===ME?" me":""); b.type="button"; b.dataset.user=u;
+    b.setAttribute("aria-pressed","true");
+    b.innerHTML=`<span class="dot" style="background:${ucol(u)}"></span><span class="nm">${shortu(u)}</span>`;
+    b.addEventListener("click",()=>{ toggleUser(u); });
+    uc.appendChild(b);
+  });
+  document.getElementById("selall").onclick=()=>{m.users.forEach(u=>ENABLED.add(u));syncChips();render()};
+  document.getElementById("selnone").onclick=()=>{ENABLED.clear();syncChips();render()};
+  document.getElementById("selme").onclick=()=>{ENABLED=new Set([ME]);syncChips();render()};
+
+  document.getElementById("loading").hidden=true;
+  document.getElementById("content").hidden=false;
+  selectDay(days[days.length-1].date);
+  window.addEventListener("resize",()=>{clearTimeout(window._rt);window._rt=setTimeout(render,120)});
+}
+
+function toggleUser(u){ if(ENABLED.has(u))ENABLED.delete(u); else ENABLED.add(u); syncChips(); render(); }
+function syncChips(){ document.querySelectorAll(".uchip").forEach(c=>c.setAttribute("aria-pressed", ENABLED.has(c.dataset.user)?"true":"false")); }
+function selectDay(date){
+  DAY=DATA.days.find(d=>d.date===date);
+  document.querySelectorAll(".daytab").forEach(t=>t.setAttribute("aria-pressed", t.dataset.date===date?"true":"false"));
+  render();
+}
+
+function render(){ if(!DAY)return; renderTiles(); drawUtil(); drawMem(); renderEvents(); renderTable(); }
+
+function renderEvents(){
+  const evs=eventsFor(), el=document.getElementById("events");
+  if(!evs.length){ el.hidden=true; return; }
+  el.hidden=false;
+  el.innerHTML=`<h3>Job events this day</h3>`+
+    `<p class="cap">Dashed markers on the charts above. Red = crash, amber = killed by root (uid 0), grey = your own cancel.</p>`+
+    `<ul class="evlist">`+evs.map(e=>{
+      const col=cssv(EVCOL[e.type]);
+      return `<li style="color:${col}"><span class="evdot" style="background:${col}"></span>`+
+        `<span class="evt">${e.t}</span>`+
+        `<span class="evlab" style="color:var(--fg)"><b>${e.label}</b></span>`+
+        `<span class="evtag ${e.type}">${EVTAG[e.type]}</span></li>`;
+    }).join("")+`</ul>`;
+}
+
+function renderTiles(){
+  const s=DAY.series;
+  const utilMean = s.reduce((a,p)=>a+p.util,0)/s.length;
+  const usedPeak = Math.max(...s.map(p=>p.used));
+  const usedPeakPct = usedPeak/DATA.meta.mem_total_mib*100;
+  const freeMin = Math.min(...s.map(p=>p.free));
+  const concurrent = Math.max(...s.map(p=>Object.keys(p.umem).length));
+  const meT = DAY.user_totals[ME];
+  const mePeak = meT? meT.mem_max : 0;
+  const meUtil = meT? meT.util_mean : 0;
+  const mePresent = meT? meT.present_share : 0;
+  const tiles=[
+    {c:"util",k:"Avg GPU util",v:fmt1(utilMean),u:"%",x:`over ${DAY.span[0]}–${DAY.span[1]}`},
+    {c:"mem",k:"Peak mem used",v:fmt1(gib(usedPeak)),u:"GiB",x:`${fmt0(usedPeakPct)}% of capacity`},
+    {c:"free",k:"Min free",v:fmt1(gib(freeMin)),u:"GiB",x:`tightest moment of the day`},
+    {c:"",k:"Peak concurrent users",v:concurrent,u:"",x:`of ${DATA.meta.users.length} seen in window`},
+    {c:"me",k:"Your peak mem",v:fmt1(gib(mePeak)),u:"GiB",x:`present ${fmt0(mePresent)}% of the day`},
+    {c:"me",k:"Your avg util",v:fmt1(meUtil),u:"%",x:`mean SM while running`},
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(t=>
+    `<div class="tile ${t.c}"><div class="stripe"></div><div class="k">${t.k}</div>`+
+    `<div class="v tnum">${t.v}<span class="u">${t.u}</span></div><div class="x">${t.x}</div></div>`).join("");
+}
+
+/* ---- canvas chart core ---- */
+function prep(canvas, h){
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const w=canvas.parentElement.clientWidth;
+  canvas.width=Math.round(w*dpr); canvas.height=Math.round(h*dpr);
+  canvas.style.height=h+"px";
+  const ctx=canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx,w,h};
+}
+function niceTicks(max,n){ const step=max/n; const mag=Math.pow(10,Math.floor(Math.log10(step)));
+  const norm=step/mag; let s= norm<1.5?1:norm<3?2:norm<7?5:10; s*=mag;
+  const out=[]; for(let v=0; v<=max+1e-9; v+=s) out.push(v); return out; }
+const PADL=44, PADR=10, PADT=10, PADB=22;
+
+function xsFor(n,w){ const x0=PADL, x1=w-PADR; return i=> n<=1? (x0+x1)/2 : x0+(x1-x0)*i/(n-1); }
+function timeTicks(series){
+  // label roughly every ~3h or evenly ~6 labels
+  const idx=[]; const n=series.length; const want=Math.min(6,n);
+  for(let k=0;k<want;k++) idx.push(Math.round(k*(n-1)/(want-1||1)));
+  return [...new Set(idx)];
+}
+function axes(ctx,w,h,ymax,unit,series){
+  const grid=cssv("--grid"), muted=cssv("--muted");
+  ctx.font='11px '+cssv("--mono").split(",")[0]+',monospace';
+  ctx.textBaseline="middle";
+  const ticks=niceTicks(ymax, 4);
+  ctx.strokeStyle=grid; ctx.fillStyle=muted; ctx.lineWidth=1;
+  ticks.forEach(t=>{
+    const y=PADT+(h-PADT-PADB)*(1-t/ymax);
+    ctx.beginPath(); ctx.moveTo(PADL,y+.5); ctx.lineTo(w-PADR,y+.5); ctx.stroke();
+    ctx.textAlign="right"; ctx.fillText(unit==='%'? t : fmt0(t), PADL-8, y);
+  });
+  // x labels
+  const xs=xsFor(series.length,w); ctx.textAlign="center"; ctx.textBaseline="top";
+  timeTicks(series).forEach(i=>{ ctx.fillText(series[i].t, Math.max(PADL+12,Math.min(w-PADR-12,xs(i))), h-PADB+6); });
+}
+
+function drawUtil(){
+  const canvas=document.getElementById("utilchart");
+  const {ctx,w,h}=prep(canvas,230);
+  const s=DAY.series; const xs=xsFor(s.length,w); const plotH=h-PADT-PADB;
+  const y=v=>PADT+plotH*(1-v/100);
+  ctx.clearRect(0,0,w,h);
+  axes(ctx,w,h,100,'%',s);
+  // overall util area
+  const acc=cssv("--accent");
+  ctx.beginPath(); ctx.moveTo(xs(0),y(s[0].util));
+  s.forEach((p,i)=>ctx.lineTo(xs(i),y(p.util)));
+  ctx.lineTo(xs(s.length-1),y(0)); ctx.lineTo(xs(0),y(0)); ctx.closePath();
+  ctx.fillStyle=cssv("--accent-soft"); ctx.fill();
+  ctx.beginPath(); s.forEach((p,i)=>i?ctx.lineTo(xs(i),y(p.util)):ctx.moveTo(xs(i),y(p.util)));
+  ctx.strokeStyle=acc; ctx.lineWidth=1.6; ctx.stroke();
+  // per-user util lines
+  const users=DATA.meta.users.filter(u=>ENABLED.has(u));
+  users.forEach(u=>{
+    ctx.beginPath(); let started=false;
+    s.forEach((p,i)=>{ const v=p.uutil[u]; if(v==null){started=false;return;}
+      if(!started){ctx.moveTo(xs(i),y(v));started=true;} else ctx.lineTo(xs(i),y(v)); });
+    ctx.strokeStyle=ucol(u); ctx.lineWidth=u===ME?1.8:1.1; ctx.globalAlpha=u===ME?1:.85; ctx.stroke(); ctx.globalAlpha=1;
+  });
+  // legend
+  document.getElementById("utillegend").innerHTML =
+    `<span><i style="background:${acc};opacity:.5"></i>whole GPU</span>`+
+    users.map(u=>`<span><i style="background:${ucol(u)}"></i>${shortu(u)}</span>`).join("");
+  drawEvents(ctx,w,h,s,xs);
+  attachTip(canvas,document.getElementById("utiltip"),s,xs,(p)=>{
+    let rows=`<div class="tt">${p.t} IST · GPU ${p.util}%</div>`;
+    users.forEach(u=>{ if(p.uutil[u]!=null) rows+=`<div class="r"><span><i style="background:${ucol(u)}"></i>${shortu(u)}</span><span class="vv">${p.uutil[u]}%</span></div>`; });
+    return rows;
+  });
+}
+
+function drawMem(){
+  const canvas=document.getElementById("memchart");
+  const {ctx,w,h}=prep(canvas,230);
+  const s=DAY.series; const xs=xsFor(s.length,w); const plotH=h-PADT-PADB;
+  const totG=DATA.meta.mem_total_mib/MIB;
+  const y=v=>PADT+plotH*(1-v/totG);
+  ctx.clearRect(0,0,w,h);
+  axes(ctx,w,h,totG,'g',s);
+  const users=DATA.meta.users.filter(u=>ENABLED.has(u));
+  // build stack layers bottom->top: enabled users, then unattributed, then free
+  const layers=[];
+  users.forEach(u=>layers.push({key:u,color:ucol(u),val:p=>gib(p.umem[u]||0)}));
+  layers.push({key:"__unattr",color:cssv("--unattr"),val:p=>{
+    const named=DATA.meta.users.reduce((a,u)=>a+(p.umem[u]||0),0);
+    return Math.max(0,gib(p.used-named)); }});
+  layers.push({key:"__free",color:cssv("--free"),val:p=>gib(p.free)});
+  // cumulative
+  const base=s.map(()=>0);
+  layers.forEach(L=>{
+    ctx.beginPath();
+    s.forEach((p,i)=>{ const yTop=y(base[i]+L.val(p)); i?ctx.lineTo(xs(i),yTop):ctx.moveTo(xs(i),yTop); });
+    for(let i=s.length-1;i>=0;i--) ctx.lineTo(xs(i),y(base[i]));
+    ctx.closePath();
+    ctx.fillStyle=L.color; ctx.globalAlpha=(L.key==="__free")?.45:(L.key==="__unattr"?.7:.9); ctx.fill(); ctx.globalAlpha=1;
+    s.forEach((p,i)=>base[i]+=L.val(p));
+  });
+  // capacity line
+  ctx.beginPath(); ctx.moveTo(PADL,y(totG)+.5); ctx.lineTo(w-PADR,y(totG)+.5);
+  ctx.strokeStyle=cssv("--muted"); ctx.setLineDash([4,3]); ctx.lineWidth=1; ctx.stroke(); ctx.setLineDash([]);
+  document.getElementById("memlegend").innerHTML =
+    users.map(u=>`<span><i style="background:${ucol(u)}"></i>${shortu(u)}</span>`).join("")+
+    `<span><i style="background:${cssv("--unattr")}"></i>unattributed</span>`+
+    `<span><i style="background:${cssv("--free")};opacity:.6"></i>free</span>`;
+  drawEvents(ctx,w,h,s,xs);
+  attachTip(canvas,document.getElementById("memtip"),s,xs,(p)=>{
+    let rows=`<div class="tt">${p.t} IST · ${fmt1(gib(p.used))} / ${fmt1(totG)} GiB used</div>`;
+    users.forEach(u=>{ if(p.umem[u]!=null) rows+=`<div class="r"><span><i style="background:${ucol(u)}"></i>${shortu(u)}</span><span class="vv">${fmt1(gib(p.umem[u]))} G</span></div>`; });
+    rows+=`<div class="r"><span><i style="background:${cssv("--free")}"></i>free</span><span class="vv">${fmt1(gib(p.free))} G</span></div>`;
+    return rows;
+  });
+}
+
+function attachTip(canvas,tip,series,xs,html){
+  const move=(ev)=>{
+    const r=canvas.getBoundingClientRect();
+    const cx=(ev.touches?ev.touches[0].clientX:ev.clientX)-r.left;
+    // nearest index
+    let best=0,bd=1e9;
+    for(let i=0;i<series.length;i++){const d=Math.abs(xs(i)-cx); if(d<bd){bd=d;best=i;}}
+    const p=series[best];
+    tip.innerHTML=html(p); tip.style.opacity=1;
+    const tw=tip.offsetWidth, px=xs(best);
+    let left=px+12; if(left+tw>r.width) left=px-tw-12; if(left<0)left=4;
+    tip.style.left=left+"px"; tip.style.top="6px";
+    // guide
+  };
+  canvas.onmousemove=move; canvas.ontouchstart=move; canvas.ontouchmove=move;
+  canvas.onmouseleave=()=>tip.style.opacity=0;
+}
+
+function utilPill(v){ const c=v>=70?"hi":v>=30?"mid":"lo"; return `<span class="pill ${c}">${fmt1(v)}%</span>`; }
+function renderTable(){
+  const tot=DATA.meta.mem_total_mib;
+  document.getElementById("hourhint").textContent=`${DAY.weekday} ${DAY.date} · sampled @ ${cadStr(DAY.cadence_s)} (${DAY.source}) · click an hour for the per-user split`;
+  const body=document.getElementById("hourbody");
+  if(!DAY.hours.length){ body.innerHTML=`<tr><td colspan="7" class="empty">no samples</td></tr>`; return; }
+  let html="";
+  DAY.hours.forEach(h=>{
+    const me=h.users[ME];
+    const label=String(h.hour).padStart(2,"0")+":00–"+String(h.hour).padStart(2,"0")+":59";
+    const freePctMin=h.mem_free_min/tot*100;
+    html+=`<tr class="hr" data-h="${h.hour}" tabindex="0" role="button" aria-expanded="false">`+
+      `<td class="l"><span class="hrtime"><span class="caret">▶</span>${label}</span></td>`+
+      `<td><div class="barwrap"><span class="bar util" style="--p:${h.util_mean}"><i></i></span>${fmt1(h.util_mean)}<span style="color:var(--muted)"> / ${fmt0(h.util_max)}</span></div></td>`+
+      `<td><div class="barwrap"><span class="bar mem" style="--p:${(h.mem_used_mean/tot*100).toFixed(0)}"><i></i></span>${fmt1(gib(h.mem_used_mean))}<span style="color:var(--muted)"> / ${fmt1(gib(h.mem_used_max))}</span></div></td>`+
+      `<td>${fmt1(gib(h.mem_free_mean))}<span style="color:var(--muted)"> / ${fmt1(gib(h.mem_free_min))}</span></td>`+
+      `<td>${Object.keys(h.users).length}</td>`+
+      `<td>${me?fmt1(gib(me.mem_max)):"—"}</td>`+
+      `<td>${me?utilPill(me.util_mean):"—"}</td>`+
+    `</tr>`;
+    html+=`<tr class="detailrow" data-for="${h.hour}" hidden><td colspan="7"><div class="detail">${innerTable(h)}</div></td></tr>`;
+  });
+  body.innerHTML=html;
+  body.querySelectorAll("tr.hr").forEach(tr=>{
+    const toggle=()=>{
+      const open=tr.getAttribute("aria-expanded")==="true";
+      tr.setAttribute("aria-expanded", open?"false":"true");
+      body.querySelector(`tr.detailrow[data-for="${tr.dataset.h}"]`).hidden=open;
+    };
+    tr.addEventListener("click",toggle);
+    tr.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();} });
+  });
+}
+function innerTable(h){
+  const rows=Object.entries(h.users).sort((a,b)=>b[1].mem_mean-a[1].mem_mean);
+  let t=`<table class="inner"><thead><tr><th class="l">User</th><th>Mem mean</th><th>Mem peak</th><th>Util mean</th><th>Util peak</th><th>Procs</th><th>Present</th></tr></thead><tbody>`;
+  rows.forEach(([u,a])=>{
+    t+=`<tr class="${u===ME?'ume':''}"><td class="l"><span class="udot" style="background:${ucol(u)}"></span><span class="uname">${shortu(u)}${u===ME?' · you':''}</span></td>`+
+      `<td>${fmt1(gib(a.mem_mean))} G</td><td>${fmt1(gib(a.mem_max))} G</td>`+
+      `<td>${utilPill(a.util_mean)}</td><td>${fmt0(a.util_max)}%</td>`+
+      `<td>${a.proc_max}</td><td>${fmt0(a.present_share)}%</td></tr>`;
+  });
+  return t+`</tbody></table>`;
+}
+
+fetch("h200_data.json").then(r=>r.json()).then(init).catch(e=>{
+  document.getElementById("loading").textContent="could not load telemetry: "+e;
+});
+</script>
